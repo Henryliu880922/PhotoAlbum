@@ -28,8 +28,17 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > release.jks
+
+      - name: Build Release APK
+        env:
+          KEYSTORE_FILE: ${{ github.workspace }}/release.jks
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
 
       - name: Extract Version and Release Notes
         id: meta
@@ -38,7 +47,6 @@ jobs:
           TAG="v${VERSION_NAME}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
-          # 從 Readme.md 擷取對應 ### vX.X.X 的更新紀錄區塊
           NOTES=$(awk -v ver="### ${TAG}" '
             $0 == ver { found=1; next }
             found && /^### / { exit }
@@ -57,7 +65,7 @@ jobs:
 
       - name: Rename APK
         run: |
-          mv app/build/outputs/apk/debug/app-debug.apk "PhotoAlbum-${{ steps.meta.outputs.tag }}.apk"
+          mv app/build/outputs/apk/release/app-release.apk "PhotoAlbum-${{ steps.meta.outputs.tag }}.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
