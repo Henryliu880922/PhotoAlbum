@@ -6,8 +6,13 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.BatteryManager
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -20,7 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -126,6 +133,7 @@ fun SlideshowViewer(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .clipToBounds()
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -160,12 +168,33 @@ fun SlideshowViewer(
             },
         contentAlignment = Alignment.Center
     ) {
-        // 使用 Crossfade 直接綁定 currentUri：同時保留舊圖與新圖做交叉淡入淡出，且張數一變必定切換
+        // 一般電子相簿經典特效：800ms 交叉淡入淡出 + Ken Burns 緩慢縮放平移運鏡
         Crossfade(
             targetState = currentUri,
-            animationSpec = tween(durationMillis = 450),
+            animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
             label = "PhotoCrossfade"
         ) { targetUri ->
+            var startKenBurns by remember(targetUri) { mutableStateOf(false) }
+
+            LaunchedEffect(targetUri, isSlideshowRunning) {
+                startKenBurns = isSlideshowRunning
+            }
+
+            val scale by animateFloatAsState(
+                targetValue = if (startKenBurns && isSlideshowRunning) 1.08f else 1.0f,
+                animationSpec = tween(durationMillis = 6000, easing = FastOutSlowInEasing),
+                label = "KenBurnsScale"
+            )
+
+            val panDirection = remember(targetUri) {
+                if (targetUri.hashCode() % 2 == 0) 1f else -1f
+            }
+            val translationX by animateFloatAsState(
+                targetValue = if (startKenBurns && isSlideshowRunning) 18f * panDirection else 0f,
+                animationSpec = tween(durationMillis = 6000, easing = FastOutSlowInEasing),
+                label = "KenBurnsPanX"
+            )
+
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(targetUri)
@@ -176,68 +205,82 @@ fun SlideshowViewer(
                     .build(),
                 contentDescription = "Full screen photo",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // 左上角：即時日期、時間與秒數膠囊
-        Surface(
-            color = Color.Black.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(16.dp)
-        ) {
-            Text(
-                text = currentDateTime,
-                color = Color.White.copy(alpha = 0.9f),
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-            )
-        }
-
-        // 右上角：即時電量百分比膠囊
-        Surface(
-            color = Color.Black.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(16.dp)
-        ) {
-            Text(
-                text = if (isCharging) "⚡ $batteryLevel%" else "🔋 $batteryLevel%",
-                color = if (batteryLevel <= 20 && !isCharging) {
-                    Color(0xFFFF6B6B)
-                } else {
-                    Color.White.copy(alpha = 0.9f)
-                },
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-            )
-        }
-
-        // 下方狀態與手勢提示列
-        if (showOverlay) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 24.dp)
-            ) {
-                Text(
-                    text = if (isSlideshowRunning) {
-                        "輪播中 (${currentIndex + 1} / ${photoUris.size}) · 滑動翻頁 · 長按返回"
-                    } else {
-                        "${currentIndex + 1} / ${photoUris.size} · 滑動翻頁 · 長按返回"
-                    },
-                    color = Color.White.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                )
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        this.translationX = translationX
+                    }
+            )
+        }
+
+        // 點擊螢幕一下可同步隱藏／顯示所有懸浮介面（日期時間、電量、底部狀態列）
+        AnimatedVisibility(
+            visible = showOverlay,
+            enter = fadeIn(animationSpec = tween(250)),
+            exit = fadeOut(animationSpec = tween(250)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 左上角：即時日期、時間與秒數膠囊
+                Surface(
+                    color = Color.Black.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = currentDateTime,
+                        color = Color.White.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+
+                // 右上角：即時電量百分比膠囊
+                Surface(
+                    color = Color.Black.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = if (isCharging) "⚡ $batteryLevel%" else "🔋 $batteryLevel%",
+                        color = if (batteryLevel <= 20 && !isCharging) {
+                            Color(0xFFFF6B6B)
+                        } else {
+                            Color.White.copy(alpha = 0.9f)
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+
+                // 下方狀態與手勢提示列
+                Surface(
+                    color = Color.Black.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 24.dp)
+                ) {
+                    Text(
+                        text = if (isSlideshowRunning) {
+                            "輪播中 (${currentIndex + 1} /${photoUris.size}) · 點擊隱藏介面 · 長按返回"
+                        } else {
+                            "${currentIndex + 1} /${photoUris.size} · 點擊隱藏介面 · 長按返回"
+                        },
+                        color = Color.White.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
             }
         }
     }
