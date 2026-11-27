@@ -1,0 +1,62 @@
+<resources>
+    <string name="app_name">電子相簿</string>
+
+    <!-- 主畫面與頂部工具列 -->
+    <string name="all_photos">全部照片</string>
+    <string name="photo_count_format">%1$s (%2$d 張)</string>
+    <string name="cd_resume_slideshow">繼續播放幻燈片</string>
+    <string name="cd_refresh">重新整理</string>
+    <string name="cd_settings">設定</string>
+    <string name="permission_required_message">需要相簿讀取權限才能顯示照片</string>
+    <string name="grant_permission">授予讀取權限</string>
+    <string name="empty_folder_message">此資料夾目前沒有照片</string>
+
+    <!-- 相簿設定面板 -->
+    <string name="settings_title">相簿設定</string>
+    <string name="auto_saved">自動儲存</string>
+    <string name="section_folder_source">資料夾來源（包含子資料夾）</string>
+    <string name="all_folders">全部資料夾</string>
+    <string name="section_grid_columns">版面網格欄數</string>
+    <string name="columns_format">%1$d 欄</string>
+    <string name="section_sort_order">照片排序順序</string>
+    <string name="sort_newest_first">最新優先</string>
+    <string name="sort_oldest_first">最舊優先</string>
+    <string name="section_slideshow_interval">幻燈片輪播切換間隔</string>
+    <string name="seconds_format">%1$d 秒</string>
+    <string name="keep_screen_on_title">檢視大圖時保持螢幕恆亮</string>
+    <string name="keep_screen_on_desc">當作桌面電子相框播放時避免螢幕休眠</string>
+    <string name="reset_last_position_format">重置記憶播放位置（目前記憶於第 %1$d 張）</string>
+    <string name="section_theme">介面外觀主題</string>
+    <string name="theme_system">跟隨系統</string>
+    <string name="theme_light">淺色模式</string>
+    <string name="theme_dark">深色模式</string>
+    <string name="manage_permissions_system">前往系統設定管理照片權限</string>
+    <string name="reset_all_settings">恢復所有預設設定</string>
+    <string name="section_language">應用程式語言</string>
+    <string name="lang_system">跟隨系統</string>
+    <string name="lang_zh_tw">繁體中文</string>
+    <string name="lang_en">English</string>
+
+    <!-- 關於與 GitHub 線上下載更新 -->
+    <string name="about_app_title">電子相簿 (PhotoAlbum)</string>
+    <string name="about_version_format">版本：%1$s</string>
+    <string name="developer_info">作者：夜宏</string>
+    <string name="about_features">支援無縫輪播、即時時鐘電量、位置記憶與線上更新</string>
+    <string name="checking_update">檢查中…</string>
+    <string name="check_github_update">檢查 GitHub 新版本</string>
+    <string name="update_connecting">正在連線 GitHub 檢查最新版本…</string>
+    <string name="update_fetch_failed">無法取得 GitHub 版本資訊，請確認網路連線</string>
+    <string name="update_found_format">發現新版本 %1$s！</string>
+    <string name="update_up_to_date_format">目前已是最新版本 (%1$s)</string>
+    <string name="update_download_failed_format">下載失敗：%1$s</string>
+    <string name="downloading_update_format">下載更新中… %1$d%%</string>
+    <string name="download_and_install_format">下載並安裝 %1$s</string>
+    <string name="section_about_app">關於與更新</string>
+    <string name="current_version_format">目前版本：v%1$s</string>
+    <!-- 全螢幕輪播檢視器 -->
+    <string name="cd_fullscreen_photo">全螢幕相片</string>
+    <string name="viewer_status_running_format">輪播中 (%1$d / %2$d) · 點擊隱藏介面 · 長按返回</string>
+    <string name="viewer_status_paused_format">%1$d / %2$d · 點擊隱藏介面 · 長按返回</string>
+
+</resources>
+

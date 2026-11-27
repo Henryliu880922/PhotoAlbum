@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.imageLoader
@@ -109,7 +110,6 @@ fun SlideshowViewer(
     val context = LocalContext.current
     val currentUri = photoUris.getOrNull(currentIndex) ?: return
 
-    // 預載下一張圖片（限制最大解碼尺寸為 1920x1920 避免高畫素原圖解碼過慢或 OOM）
     LaunchedEffect(currentIndex, photoUris.size) {
         if (photoUris.size > 1) {
             val nextUri = photoUris[(currentIndex + 1) % photoUris.size]
@@ -168,7 +168,6 @@ fun SlideshowViewer(
             },
         contentAlignment = Alignment.Center
     ) {
-        // 一般電子相簿經典特效：800ms 交叉淡入淡出 + Ken Burns 緩慢縮放平移運鏡
         Crossfade(
             targetState = currentUri,
             animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
@@ -203,7 +202,7 @@ fun SlideshowViewer(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .crossfade(false)
                     .build(),
-                contentDescription = "Full screen photo",
+                contentDescription = stringResource(R.string.cd_fullscreen_photo),
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
@@ -215,7 +214,6 @@ fun SlideshowViewer(
             )
         }
 
-        // 點擊螢幕一下可同步隱藏／顯示所有懸浮介面（日期時間、電量、底部狀態列）
         AnimatedVisibility(
             visible = showOverlay,
             enter = fadeIn(animationSpec = tween(250)),
@@ -223,7 +221,6 @@ fun SlideshowViewer(
             modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // 左上角：即時日期、時間與秒數膠囊
                 Surface(
                     color = Color.Black.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(16.dp),
@@ -240,7 +237,6 @@ fun SlideshowViewer(
                     )
                 }
 
-                // 右上角：即時電量百分比膠囊
                 Surface(
                     color = Color.Black.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(16.dp),
@@ -261,7 +257,6 @@ fun SlideshowViewer(
                     )
                 }
 
-                // 下方狀態與手勢提示列
                 Surface(
                     color = Color.Black.copy(alpha = 0.45f),
                     shape = RoundedCornerShape(16.dp),
@@ -270,12 +265,21 @@ fun SlideshowViewer(
                         .navigationBarsPadding()
                         .padding(bottom = 24.dp)
                 ) {
+                    val statusText = if (isSlideshowRunning) {
+                        stringResource(
+                            R.string.viewer_status_running_format,
+                            currentIndex + 1,
+                            photoUris.size
+                        )
+                    } else {
+                        stringResource(
+                            R.string.viewer_status_paused_format,
+                            currentIndex + 1,
+                            photoUris.size
+                        )
+                    }
                     Text(
-                        text = if (isSlideshowRunning) {
-                            "輪播中 (${currentIndex + 1} /${photoUris.size}) · 點擊隱藏介面 · 長按返回"
-                        } else {
-                            "${currentIndex + 1} /${photoUris.size} · 點擊隱藏介面 · 長按返回"
-                        },
+                        text = statusText,
                         color = Color.White.copy(alpha = 0.85f),
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
