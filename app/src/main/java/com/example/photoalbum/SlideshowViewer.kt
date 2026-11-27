@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.BatteryManager
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -21,18 +21,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.imageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Scale
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.time.Duration.Companion.seconds
 
 @Composable
 fun rememberBatteryStatus(): Pair<Int, Boolean> {
@@ -81,7 +83,7 @@ fun rememberCurrentDateTimeString(): String {
     LaunchedEffect(Unit) {
         while (true) {
             dateTimeText = formatter.format(Date())
-            delay(1000L)
+            delay(1.seconds)
         }
     }
     return dateTimeText
@@ -100,34 +102,19 @@ fun SlideshowViewer(
     val context = LocalContext.current
     val currentUri = photoUris.getOrNull(currentIndex) ?: return
 
-    // 雙層圖片狀態：previousUri 墊底，直到 currentUri 完全解碼載入後才淡入覆蓋，徹底消除黑框
-    var displayedBaseUri by remember { mutableStateOf(currentUri) }
-    var isNewImageReady by remember { mutableStateOf(true) }
-
-    LaunchedEffect(currentUri) {
-        if (currentUri != displayedBaseUri) {
-            isNewImageReady = false
-        }
-        // 預先載入下一張圖片進記憶體快取，確保下次切換零延遲
+    // 預載下一張圖片（限制最大解碼尺寸為 1920x1920 避免高畫素原圖解碼過慢或 OOM）
+    LaunchedEffect(currentIndex, photoUris.size) {
         if (photoUris.size > 1) {
             val nextUri = photoUris[(currentIndex + 1) % photoUris.size]
             val preloadRequest = ImageRequest.Builder(context)
                 .data(nextUri)
+                .size(1920, 1920)
+                .scale(Scale.FIT)
+                .memoryCachePolicy(CachePolicy.ENABLED)
                 .build()
             context.imageLoader.enqueue(preloadRequest)
         }
     }
-
-    val overlayAlpha by animateFloatAsState(
-        targetValue = if (isNewImageReady) 1f else 0f,
-        animationSpec = tween(durationMillis = 500),
-        finishedListener = { finalAlpha ->
-            if (finalAlpha == 1f) {
-                displayedBaseUri = currentUri
-            }
-        },
-        label = "SeamlessFadeAlpha"
-    )
 
     val (batteryLevel, isCharging) = rememberBatteryStatus()
     val currentDateTime = rememberCurrentDateTimeString()
@@ -173,34 +160,27 @@ fun SlideshowViewer(
             },
         contentAlignment = Alignment.Center
     ) {
-        // 底層：上一張已完全顯示的照片（在下一張解碼期間持續停留，絕不露黑）
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(displayedBaseUri)
-                .crossfade(false)
-                .build(),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // 前景層：新照片解碼完成後平滑淡入疊蓋
-        if (currentUri != displayedBaseUri) {
+        // 使用 Crossfade 直接綁定 currentUri：同時保留舊圖與新圖做交叉淡入淡出，且張數一變必定切換
+        Crossfade(
+            targetState = currentUri,
+            animationSpec = tween(durationMillis = 450),
+            label = "PhotoCrossfade"
+        ) { targetUri ->
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(currentUri)
+                    .data(targetUri)
+                    .size(1920, 1920)
+                    .scale(Scale.FIT)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
                     .crossfade(false)
                     .build(),
                 contentDescription = "Full screen photo",
                 contentScale = ContentScale.Fit,
-                onSuccess = { isNewImageReady = true },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = overlayAlpha }
+                modifier = Modifier.fillMaxSize()
             )
         }
 
-        // 左上角：即時日期、時間與秒數膠囊（字體與樣式與電量一致）
+        // 左上角：即時日期、時間與秒數膠囊
         Surface(
             color = Color.Black.copy(alpha = 0.5f),
             shape = RoundedCornerShape(16.dp),
