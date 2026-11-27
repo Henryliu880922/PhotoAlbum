@@ -47,11 +47,19 @@ jobs:
           TAG="v${VERSION_NAME}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
-          NOTES=$(awk -v ver="### ${TAG}" '
-            $0 == ver { found=1; next }
-            found && /^### / { exit }
-            found { print }
-          ' Readme.md)
+          README_FILE="README.md"
+          if [ ! -f "$README_FILE" ] && [ -f "Readme.md" ]; then
+            README_FILE="Readme.md"
+          fi
+
+          NOTES=""
+          if [ -f "$README_FILE" ]; then
+            NOTES=$(awk -v ver="### ${TAG}" '
+              $0 == ver { found=1; next }
+              found && /^### / { exit }
+              found { print }
+            ' "$README_FILE")
+          fi
 
           if [ -z "$NOTES" ]; then
             NOTES="版本 ${TAG} 自動建置發布"
@@ -65,7 +73,14 @@ jobs:
 
       - name: Rename APK
         run: |
-          mv app/build/outputs/apk/release/app-release.apk "PhotoAlbum-${{ steps.meta.outputs.tag }}.apk"
+          APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            echo "Error: No APK found in app/build/outputs/apk/release"
+            ls -la app/build/outputs/apk/release || true
+            exit 1
+          fi
+          echo "Found APK: $APK_FILE"
+          mv "$APK_FILE" "PhotoAlbum-${{ steps.meta.outputs.tag }}.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
