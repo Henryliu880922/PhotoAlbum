@@ -1,14 +1,11 @@
 package com.example.photoalbum
 
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.provider.Settings
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +28,6 @@ object AppUpdater {
     private const val REPO_NAME = "PhotoAlbum"
     private const val LATEST_RELEASE_API =
         "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
-    private const val INSTALL_ACTION = "com.example.photoalbum.INSTALL_COMPLETE"
 
     private fun parseVersionAndBuild(
         rawVersionOrTag: String,
@@ -218,40 +214,7 @@ object AppUpdater {
             session.fsync(out)
         }
 
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                val status = intent.getIntExtra(
-                    PackageInstaller.EXTRA_STATUS,
-                    PackageInstaller.STATUS_FAILURE
-                )
-                if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-                    val confirmIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(Intent.EXTRA_INTENT)
-                    }
-                    confirmIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    if (confirmIntent != null) {
-                        ctx.startActivity(confirmIntent)
-                    }
-                } else {
-                    runCatching { appContext.unregisterReceiver(this) }
-                    apkFile.delete()
-                }
-            }
-        }
-
-        ContextCompat.registerReceiver(
-            appContext,
-            receiver,
-            IntentFilter(INSTALL_ACTION),
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
-
-        val callbackIntent = Intent(INSTALL_ACTION).apply {
-            setPackage(appContext.packageName)
-        }
+        val callbackIntent = Intent(appContext, UpdateInstallReceiver::class.java)
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         } else {
