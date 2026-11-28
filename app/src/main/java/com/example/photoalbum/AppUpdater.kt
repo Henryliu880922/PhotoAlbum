@@ -21,17 +21,40 @@ data class GitHubReleaseInfo(
 
 object AppUpdater {
 
-    fun isNewerVersion(remoteTag: String, currentVersion: String): Boolean {
-        val remoteParts = remoteTag.removePrefix("v").removePrefix("V").split(".").mapNotNull { it.toIntOrNull() }
-        val localParts = currentVersion.removePrefix("v").removePrefix("V").split(".").mapNotNull { it.toIntOrNull() }
-        val maxLen = maxOf(remoteParts.size, localParts.size)
+    private data class ParsedVersion(
+        val parts: List<Int>,
+        val buildNumber: Long
+    )
+
+    private fun parseVersionTag(raw: String, fallbackBuild: Long = 0L): ParsedVersion {
+        val cleaned = raw.trim().removePrefix("v").removePrefix("V")
+        val splitByBuild = cleaned.split("-b", "-B", "+", limit = 2)
+        val versionPart = splitByBuild[0]
+        val buildPart = splitByBuild.getOrNull(1)?.filter { it.isDigit() }?.toLongOrNull() ?: fallbackBuild
+        val parts = versionPart.split(".").map { segment ->
+            segment.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
+        }
+        return ParsedVersion(parts = parts, buildNumber = buildPart)
+    }
+
+    fun isNewerVersion(
+        remoteTag: String,
+        currentVersion: String,
+        currentVersionCode: Long = 0L
+    ): Boolean {
+        val remote = parseVersionTag(remoteTag, fallbackBuild = 0L)
+        val local = parseVersionTag(currentVersion, fallbackBuild = currentVersionCode)
+
+        val maxLen = maxOf(remote.parts.size, local.parts.size)
         for (i in 0 until maxLen) {
-            val r = remoteParts.getOrElse(i) { 0 }
-            val l = localParts.getOrElse(i) { 0 }
+            val r = remote.parts.getOrElse(i) { 0 }
+            val l = local.parts.getOrElse(i) { 0 }
             if (r > l) return true
             if (r < l) return false
         }
-        return false
+
+        // 主版號完全相同（例如 1.1.4 == 1.1.4）時，比對 Build 號（例如 b8 > 7）
+        return remote.buildNumber > local.buildNumber
     }
 
     suspend fun fetchLatestGitHubRelease(): GitHubReleaseInfo? = withContext(Dispatchers.IO) {

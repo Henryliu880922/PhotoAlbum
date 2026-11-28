@@ -14,6 +14,7 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.FileObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -54,8 +55,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.photoalbum.ui.theme.PhotoAlbumTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
@@ -71,6 +75,92 @@ private fun applyAppLanguage(context: Context, langTag: String) {
     val config = Configuration(res.configuration)
     config.setLocale(targetLocale)
     res.updateConfiguration(config, res.displayMetrics)
+}
+
+@Suppress("SpellCheckingInspection")
+private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "heic", "heif", "gif", "bmp")
+
+private fun getMonitoredRootDirs(): List<File> {
+    return listOfNotNull(
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    ).filter { it.exists() && it.isDirectory }
+}
+
+private fun collectAllWatchableDirs(): List<File> {
+    val dirs = mutableListOf<File>()
+    for (root in getMonitoredRootDirs()) {
+        root.walkTopDown()
+            .maxDepth(4)
+            .filter { it.isDirectory && !it.name.startsWith(".") }
+            .forEach { dirs.add(it) }
+    }
+    return dirs
+}
+
+private data class DirectMediaSnapshot(
+    val uris: List<Uri>,
+    val folders: List<String>,
+    val filePaths: List<String>
+)
+
+private fun scanDirectMediaSnapshot(
+    sortNewestFirst: Boolean,
+    selectedFolder: String?
+): DirectMediaSnapshot {
+    val externalRoot = Environment.getExternalStorageDirectory().absolutePath.trimEnd('/') + "/"
+    val allImageFiles = mutableListOf<File>()
+    val folderSet = sortedSetOf<String>()
+
+    for (root in getMonitoredRootDirs()) {
+        root.walkTopDown()
+            .maxDepth(4)
+            .filter { file ->
+                file.isFile &&
+                        !file.name.startsWith(".") &&
+                        file.length() > 0L &&
+                        file.extension.lowercase(Locale.ROOT) in IMAGE_EXTENSIONS
+            }
+            .forEach { file ->
+                allImageFiles.add(file)
+                val parentPath = file.parentFile?.absolutePath ?: ""
+                val relativeFolder = if (parentPath.startsWith(externalRoot)) {
+                    parentPath.removePrefix(externalRoot)
+                } else {
+                    file.parentFile?.name ?: ""
+                }
+                if (relativeFolder.isNotEmpty()) {
+                    folderSet.add(relativeFolder)
+                }
+            }
+    }
+
+    val filteredFiles = if (selectedFolder == null) {
+        allImageFiles
+    } else {
+        allImageFiles.filter { file ->
+            val parentPath = file.parentFile?.absolutePath ?: ""
+            val relativeFolder = if (parentPath.startsWith(externalRoot)) {
+                parentPath.removePrefix(externalRoot)
+            } else {
+                file.parentFile?.name ?: ""
+            }
+            relativeFolder == selectedFolder
+        }
+    }
+
+    val sortedFiles = if (sortNewestFirst) {
+        filteredFiles.sortedByDescending { it.lastModified() }
+    } else {
+        filteredFiles.sortedBy { it.lastModified() }
+    }
+
+    return DirectMediaSnapshot(
+        uris = sortedFiles.map { Uri.fromFile(it) },
+        folders = folderSet.toList(),
+        filePaths = allImageFiles.map { it.absolutePath }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -193,36 +283,78 @@ fun PhotoAlbumApp() {
                 )
             }
 
-            fun refreshMediaLibrary() {
+            fun refreshMediaLibrary(syncSystemMediaStore: Boolean = false) {
                 if (!hasPermission) return
-                val scanDirs = arrayOf(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).absolutePath,
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).absolutePath,
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
-                )
-                MediaScannerConnection.scanFile(context, scanDirs, null, null)
+                coroutineScope.launch {
+                    val snapshot = withContext(Dispatchers.IO) {
+                        scanDirectMediaSnapshot(sortNewestFirst, selectedFolder)
+                    }
+                    val msFolders = withContext(Dispatchers.IO) {
+                        MediaRepository.loadImageFolders(context)
+                    }
+                    val msUris = withContext(Dispatchers.IO) {
+                        MediaRepository.loadDeviceImages(context, sortNewestFirst, selectedFolder)
+                    }
 
-                val updatedFolders = MediaRepository.loadImageFolders(context)
-                folderList = updatedFolders
-                if (selectedFolder != null && selectedFolder !in updatedFolders) {
-                    selectedFolder = null
-                    saveString("selected_folder", null)
-                }
-                val updatedPhotos =
-                    MediaRepository.loadDeviceImages(context, sortNewestFirst, selectedFolder)
-                photoUris = updatedPhotos
+                    // 合併資料夾清單（聯集去重排序），確保新建立的子資料夾也即時出現
+                    val combinedFolders = (snapshot.folders + msFolders).distinct().sorted()
+                    if (combinedFolders != folderList) {
+                        folderList = combinedFolders
+                    }
 
-                if (savedLastIndex >= updatedPhotos.size) {
-                    savedLastIndex = 0
-                    saveInt("last_viewer_index", 0)
-                }
-                val currentIdx = viewerIndex
-                if (currentIdx != null) {
-                    if (updatedPhotos.isEmpty()) {
-                        isSlideshowRunning = false
-                        viewerIndex = null
-                    } else if (currentIdx >= updatedPhotos.size) {
-                        updateViewerIndex(updatedPhotos.lastIndex)
+                    val folderWasReset = selectedFolder != null && selectedFolder !in combinedFolders
+                    if (folderWasReset) {
+                        selectedFolder = null
+                        saveString("selected_folder", null)
+                    }
+
+                    // 優先採用筆數較多（已即時掃到新檔）的一方
+                    val directUris = if (folderWasReset) {
+                        withContext(Dispatchers.IO) {
+                            scanDirectMediaSnapshot(sortNewestFirst, null).uris
+                        }
+                    } else {
+                        snapshot.uris
+                    }
+                    val mediaStoreUris = if (folderWasReset) {
+                        withContext(Dispatchers.IO) {
+                            MediaRepository.loadDeviceImages(context, sortNewestFirst, null)
+                        }
+                    } else {
+                        msUris
+                    }
+
+                    val finalUris = when {
+                        directUris.size >= mediaStoreUris.size && directUris.isNotEmpty() -> directUris
+                        mediaStoreUris.isNotEmpty() -> mediaStoreUris
+                        else -> directUris
+                    }
+
+                    if (finalUris != photoUris) {
+                        photoUris = finalUris
+                    }
+
+                    if (savedLastIndex >= finalUris.size) {
+                        savedLastIndex = 0
+                        saveInt("last_viewer_index", 0)
+                    }
+                    val currentIdx = viewerIndex
+                    if (currentIdx != null) {
+                        if (finalUris.isEmpty()) {
+                            isSlideshowRunning = false
+                            viewerIndex = null
+                        } else if (currentIdx >= finalUris.size) {
+                            updateViewerIndex(finalUris.lastIndex)
+                        }
+                    }
+
+                    if (syncSystemMediaStore && snapshot.filePaths.isNotEmpty()) {
+                        MediaScannerConnection.scanFile(
+                            context,
+                            snapshot.filePaths.toTypedArray(),
+                            null,
+                            null
+                        )
                     }
                 }
             }
@@ -232,27 +364,85 @@ fun PhotoAlbumApp() {
             ) { result ->
                 hasPermission = result.values.any { it }
                 if (hasPermission) {
-                    refreshMediaLibrary()
+                    refreshMediaLibrary(syncSystemMediaStore = true)
                 }
             }
 
             LaunchedEffect(hasPermission, sortNewestFirst, selectedFolder) {
                 if (hasPermission) {
-                    refreshMediaLibrary()
+                    refreshMediaLibrary(syncSystemMediaStore = true)
                 } else {
                     permissionLauncher.launch(permissions)
                 }
             }
 
+            // Linux 底層 inotify FileObserver + MediaStore ContentObserver 雙重毫秒級即時監聽
             DisposableEffect(hasPermission, sortNewestFirst, selectedFolder, lifecycleOwner) {
-                val contentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                val mainHandler = Handler(Looper.getMainLooper())
+                val fastRefreshRunnable = Runnable {
+                    refreshMediaLibrary(syncSystemMediaStore = true)
+                }
+                val midRefreshRunnable = Runnable {
+                    refreshMediaLibrary(syncSystemMediaStore = true)
+                }
+                val settleRefreshRunnable = Runnable {
+                    refreshMediaLibrary(syncSystemMediaStore = false)
+                }
+
+                fun scheduleInstantRefresh() {
+                    mainHandler.removeCallbacks(fastRefreshRunnable)
+                    mainHandler.removeCallbacks(midRefreshRunnable)
+                    mainHandler.removeCallbacks(settleRefreshRunnable)
+                    mainHandler.postDelayed(fastRefreshRunnable, 80L)
+                    mainHandler.postDelayed(midRefreshRunnable, 600L)
+                    mainHandler.postDelayed(settleRefreshRunnable, 1800L)
+                }
+
+                val watchMask = FileObserver.CLOSE_WRITE or
+                        FileObserver.MOVED_TO or
+                        FileObserver.MOVED_FROM or
+                        FileObserver.DELETE or
+                        FileObserver.CREATE
+
+                val legacyObservers = mutableListOf<FileObserver>()
+                var multiDirObserver: FileObserver? = null
+
+                if (hasPermission) {
+                    val watchDirs = collectAllWatchableDirs()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        if (watchDirs.isNotEmpty()) {
+                            multiDirObserver = object : FileObserver(watchDirs, watchMask) {
+                                override fun onEvent(event: Int, path: String?) {
+                                    if (path != null && !path.startsWith(".")) {
+                                        scheduleInstantRefresh()
+                                    }
+                                }
+                            }.apply { startWatching() }
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        watchDirs.forEach { dir ->
+                            val observer = object : FileObserver(dir.absolutePath, watchMask) {
+                                override fun onEvent(event: Int, path: String?) {
+                                    if (path != null && !path.startsWith(".")) {
+                                        scheduleInstantRefresh()
+                                    }
+                                }
+                            }
+                            observer.startWatching()
+                            legacyObservers.add(observer)
+                        }
+                    }
+                }
+
+                val contentObserver = object : ContentObserver(mainHandler) {
                     override fun onChange(selfChange: Boolean) {
-                        refreshMediaLibrary()
+                        scheduleInstantRefresh()
                     }
                 }
                 val lifecycleObserver = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
-                        refreshMediaLibrary()
+                        refreshMediaLibrary(syncSystemMediaStore = true)
                     }
                 }
 
@@ -266,10 +456,16 @@ fun PhotoAlbumApp() {
                 lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
 
                 onDispose {
+                    mainHandler.removeCallbacks(fastRefreshRunnable)
+                    mainHandler.removeCallbacks(midRefreshRunnable)
+                    mainHandler.removeCallbacks(settleRefreshRunnable)
+                    multiDirObserver?.stopWatching()
+                    legacyObservers.forEach { it.stopWatching() }
                     context.contentResolver.unregisterContentObserver(contentObserver)
                     lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
                 }
             }
+
 
             BackHandler(enabled = viewerIndex != null) {
                 isSlideshowRunning = false
@@ -307,7 +503,7 @@ fun PhotoAlbumApp() {
                                 }
                                 IconButton(onClick = {
                                     if (hasPermission) {
-                                        refreshMediaLibrary()
+                                        refreshMediaLibrary(syncSystemMediaStore = true)
                                     } else {
                                         permissionLauncher.launch(permissions)
                                     }
@@ -710,9 +906,24 @@ fun PhotoAlbumApp() {
                                                 style = MaterialTheme.typography.titleMedium
                                             )
                                             Text(
-                                                text = "v$versionName ($versionCode)",
+                                                text = "v$versionName (Build $versionCode)",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.version_name_format, versionName),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.build_number_format, versionCode),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                         Text(
@@ -752,7 +963,8 @@ fun PhotoAlbumApp() {
                                                 MediaRepository.getCurrentVersionName(context)
                                             if (AppUpdater.isNewerVersion(
                                                     release.tagName,
-                                                    latestVer
+                                                    latestVer,
+                                                    versionCode
                                                 )
                                             ) {
                                                 availableRelease = release

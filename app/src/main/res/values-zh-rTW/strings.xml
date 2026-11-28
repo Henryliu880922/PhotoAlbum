@@ -39,7 +39,8 @@
 
     <!-- 關於與 GitHub 線上下載更新 -->
     <string name="about_app_title">電子相簿 (PhotoAlbum)</string>
-    <string name="about_version_format">版本：%1$s</string>
+    <string name="version_name_format">程式版號：%1$s</string>
+    <string name="build_number_format">組建號：%1$d</string>
     <string name="developer_info">作者：夜宏</string>
     <string name="about_features">支援無縫輪播、即時時鐘電量、位置記憶與線上更新</string>
     <string name="checking_update">檢查中…</string>

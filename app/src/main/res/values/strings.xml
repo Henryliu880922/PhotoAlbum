@@ -1,4 +1,4 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
     <string name="app_name">PhotoAlbum</string>
 
     <!-- Main Screen & Top Bar -->
@@ -39,7 +39,8 @@
 
     <!-- About & GitHub Updater -->
     <string name="about_app_title">PhotoAlbum</string>
-    <string name="about_version_format">Version: %1$s</string>
+    <string name="version_name_format">Version: %1$s</string>
+    <string name="build_number_format">Build: %1$d</string>
     <string name="developer_info">Developer: Henry Liu</string>
     <string name="about_features">Seamless slideshow, live clock &amp; battery, position memory &amp; OTA updates</string>
     <string name="checking_update">Checking…</string>

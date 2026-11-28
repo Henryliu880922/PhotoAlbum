@@ -44,7 +44,8 @@ jobs:
         id: meta
         run: |
           VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
-          TAG="v${VERSION_NAME}"
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts)
+          TAG="v${VERSION_NAME}-b${VERSION_CODE}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
           README_FILE="README.md"
@@ -59,6 +60,15 @@ jobs:
               found && /^### / { exit }
               found { print }
             ' "$README_FILE")
+
+            if [ -z "$NOTES" ]; then
+              BASE_TAG="v${VERSION_NAME}"
+              NOTES=$(awk -v ver="### ${BASE_TAG}" '
+                $0 == ver { found=1; next }
+                found && /^### / { exit }
+                found { print }
+              ' "$README_FILE")
+            fi
           fi
 
           if [ -z "$NOTES" ]; then
