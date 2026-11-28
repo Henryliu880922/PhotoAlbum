@@ -44,8 +44,15 @@ jobs:
         id: meta
         run: |
           VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
-          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts)
-          TAG="v${VERSION_NAME}-b${VERSION_CODE}"
+          BUILD_NUM=$(grep -oP 'buildConfigField\("int",\s*"BUILD_NUMBER",\s*"\K[0-9]+' app/build.gradle.kts)
+          BUILD_NUM=${BUILD_NUM:-1}
+
+          if [ "$BUILD_NUM" -ge 2 ]; then
+            TAG="v${VERSION_NAME}-b${BUILD_NUM}"
+          else
+            TAG="v${VERSION_NAME}"
+          fi
+
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
           README_FILE="README.md"

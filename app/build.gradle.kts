@@ -17,15 +17,17 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.example.photoalbum"
-        minSdk = 24
-        targetSdk = 37
+        // ...
+        minSdk = 26
         versionCode = 10
-        versionName = "1.1.4"
-
+        versionName = "1.1.5"
+        buildConfigField("int", "BUILD_NUMBER", "1")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     signingConfigs {
         create("release") {
             val envKeystore = System.getenv("KEYSTORE_FILE")

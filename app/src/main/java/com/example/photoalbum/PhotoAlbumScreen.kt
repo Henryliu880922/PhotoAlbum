@@ -48,7 +48,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.core.content.pm.PackageInfoCompat
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -164,6 +163,7 @@ private fun scanDirectMediaSnapshot(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Suppress("KotlinConstantConditions")
 @Composable
 fun PhotoAlbumApp() {
     val context = LocalContext.current
@@ -296,7 +296,6 @@ fun PhotoAlbumApp() {
                         MediaRepository.loadDeviceImages(context, sortNewestFirst, selectedFolder)
                     }
 
-                    // 合併資料夾清單（聯集去重排序），確保新建立的子資料夾也即時出現
                     val combinedFolders = (snapshot.folders + msFolders).distinct().sorted()
                     if (combinedFolders != folderList) {
                         folderList = combinedFolders
@@ -308,7 +307,6 @@ fun PhotoAlbumApp() {
                         saveString("selected_folder", null)
                     }
 
-                    // 優先採用筆數較多（已即時掃到新檔）的一方
                     val directUris = if (folderWasReset) {
                         withContext(Dispatchers.IO) {
                             scanDirectMediaSnapshot(sortNewestFirst, null).uris
@@ -376,7 +374,6 @@ fun PhotoAlbumApp() {
                 }
             }
 
-            // Linux 底層 inotify FileObserver + MediaStore ContentObserver 雙重毫秒級即時監聽
             DisposableEffect(hasPermission, sortNewestFirst, selectedFolder, lifecycleOwner) {
                 val mainHandler = Handler(Looper.getMainLooper())
                 val fastRefreshRunnable = Runnable {
@@ -465,7 +462,6 @@ fun PhotoAlbumApp() {
                     lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
                 }
             }
-
 
             BackHandler(enabled = viewerIndex != null) {
                 isSlideshowRunning = false
@@ -876,11 +872,12 @@ fun PhotoAlbumApp() {
                             HorizontalDivider()
 
                             // 區塊 6：APP 資訊與 GitHub 線上下載更新
-                            val packageInfo = remember {
-                                context.packageManager.getPackageInfo(context.packageName, 0)
-                            }
-                            val versionName = packageInfo.versionName ?: "1.0"
-                            val versionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
+                            val versionName = BuildConfig.VERSION_NAME
+                            val buildNumber = BuildConfig.BUILD_NUMBER.toLong()
+                            val formattedCurrentVersion = AppUpdater.formatDisplayVersion(
+                                rawVersionOrTag = versionName,
+                                fallbackBuild = buildNumber
+                            )
 
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
@@ -906,7 +903,11 @@ fun PhotoAlbumApp() {
                                                 style = MaterialTheme.typography.titleMedium
                                             )
                                             Text(
-                                                text = "v$versionName (Build $versionCode)",
+                                                text = if (buildNumber >= 2L) {
+                                                    "v$versionName (Build $buildNumber)"
+                                                } else {
+                                                    "v$versionName"
+                                                },
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
@@ -916,15 +917,17 @@ fun PhotoAlbumApp() {
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
                                             Text(
-                                                text = stringResource(R.string.version_name_format, versionName),
+                                                text = stringResource(R.string.version_name_format, formattedCurrentVersion),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
-                                            Text(
-                                                text = stringResource(R.string.build_number_format, versionCode),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                            if (buildNumber >= 2L) {
+                                                Text(
+                                                    text = stringResource(R.string.build_number_format, buildNumber),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
                                         Text(
                                             text = stringResource(R.string.developer_info),
@@ -954,22 +957,24 @@ fun PhotoAlbumApp() {
                                         if (release == null) {
                                             updateStatusMessage = strUpdateFetchFailed
                                         } else {
-                                            val latestVer =
-                                                MediaRepository.getCurrentVersionName(context)
+                                            val formattedRemoteTag = "v" + AppUpdater.formatDisplayVersion(
+                                                rawVersionOrTag = release.tagName,
+                                                fallbackBuild = 1L
+                                            )
                                             if (AppUpdater.isNewerVersion(
                                                     release.tagName,
-                                                    latestVer,
-                                                    versionCode
+                                                    versionName,
+                                                    buildNumber
                                                 )
                                             ) {
                                                 availableRelease = release
                                                 updateStatusMessage =
-                                                    String.format(strUpdateFoundFormat, release.tagName)
+                                                    String.format(strUpdateFoundFormat, formattedRemoteTag)
                                             } else {
                                                 availableRelease = null
                                                 updateStatusMessage = String.format(
                                                     strUpdateUpToDateFormat,
-                                                    release.tagName
+                                                    formattedRemoteTag
                                                 )
                                             }
                                         }
@@ -996,6 +1001,10 @@ fun PhotoAlbumApp() {
                             }
 
                             availableRelease?.let { release ->
+                                val formattedRemoteTag = "v" + AppUpdater.formatDisplayVersion(
+                                    rawVersionOrTag = release.tagName,
+                                    fallbackBuild = 1L
+                                )
                                 Button(
                                     onClick = {
                                         if (isDownloadingApk) return@Button
@@ -1030,7 +1039,7 @@ fun PhotoAlbumApp() {
                                         } else {
                                             stringResource(
                                                 R.string.download_and_install_format,
-                                                release.tagName
+                                                formattedRemoteTag
                                             )
                                         }
                                     )

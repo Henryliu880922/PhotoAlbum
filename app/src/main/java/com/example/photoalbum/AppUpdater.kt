@@ -2,7 +2,6 @@ package com.example.photoalbum
 
 import android.content.Context
 import android.content.Intent
-import android.os.Environment
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,7 +25,7 @@ object AppUpdater {
         val buildNumber: Long
     )
 
-    private fun parseVersionTag(raw: String, fallbackBuild: Long = 0L): ParsedVersion {
+    private fun parseVersionTag(raw: String, fallbackBuild: Long = 1L): ParsedVersion {
         val cleaned = raw.trim().removePrefix("v").removePrefix("V")
         val splitByBuild = cleaned.split("-b", "-B", "+", limit = 2)
         val versionPart = splitByBuild[0]
@@ -37,13 +36,28 @@ object AppUpdater {
         return ParsedVersion(parts = parts, buildNumber = buildPart)
     }
 
+    /**
+     * 統一版本顯示規則：
+     * - build >= 2 時顯示主版號與組建號（例如 "1.1.5-b2"）
+     * - build <= 1 時只顯示主版號（例如 "1.1.5"）
+     */
+    fun formatDisplayVersion(rawVersionOrTag: String, fallbackBuild: Long = 1L): String {
+        val parsed = parseVersionTag(rawVersionOrTag, fallbackBuild = fallbackBuild)
+        val baseVersion = parsed.parts.joinToString(".")
+        return if (parsed.buildNumber >= 2L) {
+            "$baseVersion-b${parsed.buildNumber}"
+        } else {
+            baseVersion
+        }
+    }
+
     fun isNewerVersion(
         remoteTag: String,
         currentVersion: String,
-        currentVersionCode: Long = 0L
+        currentBuildNumber: Long = 1L
     ): Boolean {
-        val remote = parseVersionTag(remoteTag, fallbackBuild = 0L)
-        val local = parseVersionTag(currentVersion, fallbackBuild = currentVersionCode)
+        val remote = parseVersionTag(remoteTag, fallbackBuild = 1L)
+        val local = parseVersionTag(currentVersion, fallbackBuild = currentBuildNumber)
 
         val maxLen = maxOf(remote.parts.size, local.parts.size)
         for (i in 0 until maxLen) {
@@ -53,7 +67,6 @@ object AppUpdater {
             if (r < l) return false
         }
 
-        // 主版號完全相同（例如 1.1.4 == 1.1.4）時，比對 Build 號（例如 b8 > 7）
         return remote.buildNumber > local.buildNumber
     }
 
@@ -101,8 +114,7 @@ object AppUpdater {
         onError: (String) -> Unit
     ) = withContext(Dispatchers.IO) {
         try {
-            val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
-            val apkFile = File(downloadDir, fileName)
+            val apkFile = File(context.cacheDir, fileName)
             if (apkFile.exists()) apkFile.delete()
 
             val conn = (URL(apkUrl).openConnection() as HttpURLConnection).apply {
