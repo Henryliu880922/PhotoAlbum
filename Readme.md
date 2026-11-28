@@ -15,6 +15,10 @@
 ---
 
 ## 版本更新紀錄 (Changelog)
+### v1.1.4-b9
+* **優化** 精簡設定頁面「關於與更新」資訊卡片排版，清楚展示程式版號與組建號。
+* **新增** 整合 Linux 底層 `FileObserver` 與 `MediaStore` 雙軌即時監聽，相簿張數與網格縮圖毫秒級同步更新。
+
 ### v1.1.4-b8
 * **新增** 整合 Linux 底層 `FileObserver` (inotify) 與 `MediaStore` 雙軌即時監聽機制，新增或刪除照片時頂部張數與網格縮圖毫秒級同步更新。
 * **優化** 採用語意化版本與 Build 號發布規則（`v{versionName}-b{versionCode}`），支援小幅優化獨立打包與線上更新偵測。
