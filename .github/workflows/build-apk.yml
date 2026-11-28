@@ -92,6 +92,12 @@ jobs:
           echo "Found APK: $APK_FILE"
           mv "$APK_FILE" "PhotoAlbum-${{ steps.meta.outputs.tag }}.apk"
 
+      - name: Delete Existing Release If Exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ steps.meta.outputs.tag }}" -y 2>/dev/null || true
+
       - name: Force Update Git Tag
         run: |
           git tag -f "${{ steps.meta.outputs.tag }}"
@@ -106,3 +112,4 @@ jobs:
           files: "PhotoAlbum-${{ steps.meta.outputs.tag }}.apk"
           draft: false
           prerelease: false
+          make_latest: true
