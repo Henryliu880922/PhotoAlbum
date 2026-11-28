@@ -19,9 +19,20 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContent {
             val context = LocalContext.current
+            val storagePermission = remember {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    Manifest.permission.READ_MEDIA_IMAGES
+                } else {
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                }
+            }
+
             val requiredPermissions = remember {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+                    arrayOf(
+                        Manifest.permission.READ_MEDIA_IMAGES,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    )
                 } else {
                     arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
@@ -29,20 +40,22 @@ class MainActivity : AppCompatActivity() {
 
             var hasStoragePermission by remember {
                 mutableStateOf(
-                    requiredPermissions.all {
-                        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-                    }
+                    ContextCompat.checkSelfPermission(context, storagePermission) == PackageManager.PERMISSION_GRANTED
                 )
             }
 
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions()
             ) { permissions ->
-                hasStoragePermission = permissions.values.all { it }
+                hasStoragePermission = permissions[storagePermission] == true ||
+                        ContextCompat.checkSelfPermission(context, storagePermission) == PackageManager.PERMISSION_GRANTED
             }
 
             LaunchedEffect(Unit) {
-                if (!hasStoragePermission) {
+                val allGranted = requiredPermissions.all {
+                    ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+                }
+                if (!allGranted) {
                     permissionLauncher.launch(requiredPermissions)
                 }
             }

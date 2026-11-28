@@ -19,9 +19,9 @@ android {
     defaultConfig {
         // ...
         minSdk = 26
-        versionCode = 13
+        versionCode = 14
         versionName = "1.1.5"
-        buildConfigField("int", "BUILD_NUMBER", "4")
+        buildConfigField("int", "BUILD_NUMBER", "5")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     lint {
