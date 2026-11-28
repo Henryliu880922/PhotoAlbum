@@ -19,10 +19,13 @@ android {
     defaultConfig {
         // ...
         minSdk = 26
-        versionCode = 11
+        versionCode = 12
         versionName = "1.1.5"
-        buildConfigField("int", "BUILD_NUMBER", "2")
+        buildConfigField("int", "BUILD_NUMBER", "3")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    lint {
+        disable += "RequestInstallPackagesPolicy"
     }
     buildFeatures {
         compose = true

@@ -1,16 +1,21 @@
 package com.example.photoalbum
 
-import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Environment
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
+import android.os.Build
 import android.provider.Settings
-import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -26,12 +31,8 @@ object AppUpdater {
     private const val REPO_NAME = "PhotoAlbum"
     private const val LATEST_RELEASE_API =
         "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
+    private const val INSTALL_ACTION = "com.example.photoalbum.INSTALL_COMPLETE"
 
-    /**
-     * 解析版本號與組建號：
-     * 支援 "v1.1.5"、"1.1.5"、"v1.1.5-b2" 等格式。
-     * 若未帶 -bN 後綴，則回退使用 fallbackBuild（預設為 1L）。
-     */
     private fun parseVersionAndBuild(
         rawVersionOrTag: String,
         fallbackBuild: Long = 1L
@@ -50,20 +51,12 @@ object AppUpdater {
         return versionNumbers to parsedBuild
     }
 
-    /**
-     * 統一格式化顯示版號：
-     * build >= 2 時回傳 "1.1.5-b2"；build <= 1 時僅回傳主版號 "1.1.5"。
-     */
     fun formatDisplayVersion(rawVersionOrTag: String, fallbackBuild: Long = 1L): String {
         val (numbers, build) = parseVersionAndBuild(rawVersionOrTag, fallbackBuild)
         val baseVersion = numbers.joinToString(".")
         return if (build >= 2L) "$baseVersion-b$build" else baseVersion
     }
 
-    /**
-     * 判斷遠端版本是否比目前安裝版本更新：
-     * 先逐位比較主版號（Major.Minor.Patch），主版號相同時再比較組建號（Build Number）。
-     */
     fun isNewerVersion(
         remoteTag: String,
         currentVersionName: String,
@@ -82,9 +75,6 @@ object AppUpdater {
         return remoteBuild > localBuild
     }
 
-    /**
-     * 從 GitHub Releases API 取得最新正式發布版本與 APK 下載連結
-     */
     suspend fun fetchLatestGitHubRelease(): GitHubReleaseInfo? = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
@@ -127,10 +117,6 @@ object AppUpdater {
         }
     }
 
-    /**
-     * 下載 APK 至外部專屬下載目錄（供系統安裝器讀取正確圖示與應用名稱）並啟動安裝
-     */
-    @SuppressLint("NewApi")
     suspend fun downloadAndInstallApk(
         context: Context,
         apkUrl: String,
@@ -140,19 +126,9 @@ object AppUpdater {
     ) = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            val downloadDir =
-                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
-            if (!downloadDir.exists()) {
-                downloadDir.mkdirs()
-            }
-            // 清理舊的更新暫存檔，節省空間
-            downloadDir.listFiles()?.forEach { existing ->
-                if (existing.isFile && existing.name.endsWith(".apk", ignoreCase = true)) {
-                    existing.delete()
-                }
-            }
+            val apkFile = File(context.cacheDir, fileName)
+            if (apkFile.exists()) apkFile.delete()
 
-            val apkFile = File(downloadDir, fileName)
             val url = URL(apkUrl)
             connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -195,9 +171,7 @@ object AppUpdater {
                 }
             }
 
-            withContext(Dispatchers.Main) {
-                launchApkInstaller(context, apkFile)
-            }
+            installViaPackageInstaller(context, apkFile)
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 onError(e.localizedMessage ?: "Download failed")
@@ -207,29 +181,90 @@ object AppUpdater {
         }
     }
 
-    private fun launchApkInstaller(context: Context, apkFile: File) {
+    private suspend fun installViaPackageInstaller(context: Context, apkFile: File) {
         if (!context.packageManager.canRequestPackageInstalls()) {
-            val permissionIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                "package:${context.packageName}".toUri()
-            ).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            withContext(Dispatchers.Main) {
+                val permissionIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    "package:${context.packageName}".toUri()
+                ).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(permissionIntent)
             }
-            context.startActivity(permissionIntent)
             return
         }
 
-        val apkUri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            apkFile
+        val appContext = context.applicationContext
+        val packageInstaller = appContext.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(
+            PackageInstaller.SessionParams.MODE_FULL_INSTALL
+        ).apply {
+            setAppPackageName(appContext.packageName)
+            setAppLabel(appContext.getString(R.string.app_name))
+            runCatching {
+                val drawable = appContext.packageManager.getApplicationIcon(appContext.packageName)
+                setAppIcon(drawable.toBitmap(width = 192, height = 192))
+            }
+        }
+
+        val sessionId = packageInstaller.createSession(params)
+        val session = packageInstaller.openSession(sessionId)
+
+        session.openWrite("base.apk", 0, apkFile.length()).use { out ->
+            FileInputStream(apkFile).use { input ->
+                input.copyTo(out)
+            }
+            session.fsync(out)
+        }
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val status = intent.getIntExtra(
+                    PackageInstaller.EXTRA_STATUS,
+                    PackageInstaller.STATUS_FAILURE
+                )
+                if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                    val confirmIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(Intent.EXTRA_INTENT)
+                    }
+                    confirmIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (confirmIntent != null) {
+                        ctx.startActivity(confirmIntent)
+                    }
+                } else {
+                    runCatching { appContext.unregisterReceiver(this) }
+                    apkFile.delete()
+                }
+            }
+        }
+
+        ContextCompat.registerReceiver(
+            appContext,
+            receiver,
+            IntentFilter(INSTALL_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
-        val installIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val callbackIntent = Intent(INSTALL_ACTION).apply {
+            setPackage(appContext.packageName)
         }
-        context.startActivity(installIntent)
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        val statusReceiver = PendingIntent.getBroadcast(
+            appContext,
+            sessionId,
+            callbackIntent,
+            flags
+        )
+
+        session.commit(statusReceiver.intentSender)
+        session.close()
     }
 }
