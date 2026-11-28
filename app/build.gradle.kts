@@ -1,6 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -11,50 +20,54 @@ android {
         applicationId = "com.example.photoalbum"
         minSdk = 24
         targetSdk = 37
-        versionCode = 9
+        versionCode = 10
         versionName = "1.1.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    buildFeatures {
-        compose = true
-    }
     signingConfigs {
         create("release") {
-            val keystorePath = System.getenv("KEYSTORE_FILE")
-            if (!keystorePath.isNullOrEmpty()) {
-                storeFile = file(keystorePath)
+            val envKeystore = System.getenv("KEYSTORE_FILE")
+            if (!envKeystore.isNullOrEmpty()) {
+                // GitHub Actions 環境
+                storeFile = file(envKeystore)
                 storePassword = System.getenv("KEY_STORE_PASSWORD")
                 keyAlias = System.getenv("ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
+            } else {
+                // 本機 Android Studio 環境
+                val storePath = localProps.getProperty("RELEASE_STORE_FILE") ?: "photoalbum-release.jks"
+                storeFile = rootProject.file(storePath)
+                storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD") ?: ""
+                keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS") ?: "photoalbum"
+                keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD") ?: ""
             }
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
-            // 綁定上方的 release 簽章設定
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    buildFeatures {
+        compose = true
     }
 }
 
