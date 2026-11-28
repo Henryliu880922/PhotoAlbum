@@ -927,11 +927,6 @@ fun PhotoAlbumApp() {
                                             )
                                         }
                                         Text(
-                                            text = "Android Jetpack Compose • Material 3",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
                                             text = stringResource(R.string.developer_info),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant

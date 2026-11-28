@@ -92,6 +92,11 @@ jobs:
           echo "Found APK: $APK_FILE"
           mv "$APK_FILE" "PhotoAlbum-${{ steps.meta.outputs.tag }}.apk"
 
+      - name: Force Update Git Tag
+        run: |
+          git tag -f "${{ steps.meta.outputs.tag }}"
+          git push -f origin "${{ steps.meta.outputs.tag }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
